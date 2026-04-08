@@ -1,0 +1,113 @@
+package com.klu.controller;
+
+import com.klu.dto.ApiResponse;
+import com.klu.dto.UserResponseDTO;
+import com.klu.service.UserService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+/**
+ * REST controller for User management.
+ *
+ * Base URL : /api/users
+ *
+ * Endpoints
+ * ---------
+ * GET    /api/users               → list all users          [ADMIN]
+ * GET    /api/users/{id}          → get user by id          [ADMIN]
+ * GET    /api/users/email?e=..    → get user by email       [authenticated]
+ * GET    /api/users/role/{role}   → get users by role       [ADMIN]
+ * PUT    /api/users/{id}          → update user details     [ADMIN]
+ * PATCH  /api/users/{id}/role     → change user role        [ADMIN]
+ * DELETE /api/users/{id}          → soft-disable user       [ADMIN]
+ */
+@RestController
+@RequestMapping("/api/users")
+@RequiredArgsConstructor
+public class UserController {
+
+    private final UserService userService;
+
+    // ================================================================
+    //  READ
+    // ================================================================
+
+    /** List all registered users. */
+    @GetMapping
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<List<UserResponseDTO>>> getAllUsers() {
+        return ResponseEntity.ok(ApiResponse.ok("All users fetched", userService.getAllUsers()));
+    }
+
+    /** Get a single user by their database ID. */
+    @GetMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<UserResponseDTO>> getUserById(@PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.ok(userService.getUserById(id)));
+    }
+
+    /**
+     * Get a user by email address.
+     * Any authenticated user can call this (they can look up themselves).
+     *
+     * @param email e.g. GET /api/users/email?email=john@example.com
+     */
+    @GetMapping("/email")
+    public ResponseEntity<ApiResponse<UserResponseDTO>> getUserByEmail(@RequestParam String email) {
+        return ResponseEntity.ok(ApiResponse.ok(userService.getUserByEmail(email)));
+    }
+
+    /** Get all users that belong to a given role (ADMIN / INVESTOR / ADVISOR / ANALYST). */
+    @GetMapping("/role/{role}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<List<UserResponseDTO>>> getUsersByRole(@PathVariable String role) {
+        return ResponseEntity.ok(ApiResponse.ok("Users with role " + role, userService.getUsersByRole(role)));
+    }
+
+    // ================================================================
+    //  UPDATE
+    // ================================================================
+
+    /**
+     * Full / partial update of user details (name, email, password, role).
+     * Fields omitted or blank in the request body are not changed.
+     */
+    @PutMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<UserResponseDTO>> updateUser(
+            @PathVariable Long id,
+            @RequestBody UserService.UserUpdateRequest request) {
+        return ResponseEntity.ok(ApiResponse.ok("User updated", userService.updateUser(id, request)));
+    }
+
+    /**
+     * Change only the role of a user.
+     * Body: { "role": "ADVISOR" }
+     */
+    @PatchMapping("/{id}/role")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<UserResponseDTO>> updateRole(
+            @PathVariable Long id,
+            @RequestBody RoleUpdateRequest request) {
+        return ResponseEntity.ok(ApiResponse.ok("Role updated", userService.updateRole(id, request.role())));
+    }
+
+    // ================================================================
+    //  DELETE
+    // ================================================================
+
+    /** Soft-disable a user account (sets enabled = false). */
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<Void>> deleteUser(@PathVariable Long id) {
+        userService.deleteUser(id);
+        return ResponseEntity.ok(ApiResponse.ok("User deactivated", null));
+    }
+
+    // ---- Inner DTO ----
+    public record RoleUpdateRequest(String role) {}
+}

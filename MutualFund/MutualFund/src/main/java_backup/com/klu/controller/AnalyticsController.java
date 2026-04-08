@@ -1,0 +1,183 @@
+package com.klu.controller;
+
+import com.klu.dto.ApiResponse;
+import com.klu.dto.MonthlyReportDTO;
+import com.klu.dto.RiskReturnDTO;
+import com.klu.dto.TopFundDTO;
+import com.klu.service.AnalyticsService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+
+import java.time.LocalDate;
+import java.util.List;
+
+/**
+ * REST controller for Analytics APIs.
+ *
+ * Base URL : /api/analytics
+ *
+ * ┌────────────────────────────────────────────────────────────────────────────────┐
+ * │  Method │  URL                                         │  Description          │
+ * ├─────────┼──────────────────────────────────────────────┼───────────────────────┤
+ * │  GET    │  /api/analytics/top-funds                    │  Top performing funds │
+ * │  GET    │  /api/analytics/top-funds?limit=5            │  Top-N funds          │
+ * │  GET    │  /api/analytics/risk-vs-return               │  Risk/Return matrix   │
+ * │  GET    │  /api/analytics/monthly-report               │  Platform monthly     │
+ * │  GET    │  /api/analytics/monthly-report?year=2025     │  Platform by year     │
+ * │  GET    │  /api/analytics/monthly-report?userId=1      │  User monthly report  │
+ * └─────────┴──────────────────────────────────────────────┴───────────────────────┘
+ *
+ * Security: INVESTOR, ADVISOR, ANALYST, ADMIN may all read analytics.
+ *           Platform-wide endpoints are restricted to ADMIN / ANALYST / ADVISOR.
+ */
+@RestController
+@RequestMapping("/api/analytics")
+@RequiredArgsConstructor
+public class AnalyticsController {
+
+    private final AnalyticsService AnalyticsService;
+
+    // ================================================================
+    //  1. TOP PERFORMING FUNDS
+    // ================================================================
+
+    /**
+     * Returns the top-N active mutual funds ranked by annualised returns
+     * (and AUM as a secondary key).
+     *
+     * <p>Query params:
+     * <ul>
+     *   <li>{@code limit} — number of funds to return (default: 10, max: 50)</li>
+     * </ul>
+     *
+     * <p>Example:
+     * <pre>GET /api/analytics/top-funds?limit=5</pre>
+     *
+     * <p>Response 200:
+     * <pre>
+     * {
+     *   "success": true,
+     *   "message": "Top 5 performing funds",
+     *   "data": [
+     *     { "rank": 1, "fundName": "Quant Small Cap", "returns": 28.40, "totalAum": 50000000, ... },
+     *     ...
+     *   ]
+     * }
+     * </pre>
+     */
+    @GetMapping("/top-funds")
+    @PreAuthorize("hasAnyRole('ADMIN','ANALYST','ADVISOR','INVESTOR')")
+    public ResponseEntity<ApiResponse<List<TopFundDTO>>> getTopFunds(
+            @RequestParam(defaultValue = "10") int limit) {
+
+        // Guard against unreasonable inputs
+        if (limit < 1)  limit = 1;
+        if (limit > 50) limit = 50;
+
+        List<TopFundDTO> funds = AnalyticsService.getTopPerformingFunds(limit);
+        return ResponseEntity.ok(
+                ApiResponse.ok("Top " + limit + " performing funds", funds));
+    }
+
+    // ================================================================
+    //  2. RISK VS RETURN COMPARISON
+    // ================================================================
+
+    /**
+     * Returns the risk-vs-return comparison matrix across all active funds,
+     * grouped by risk level (LOW → MODERATE → HIGH → VERY_HIGH).
+     *
+     * <p>Each bucket includes:
+     * <ul>
+     *   <li>Fund count</li>
+     *   <li>Average, min, max, median annualised returns</li>
+     *   <li>Individual fund list (id, name, returns, NAV)</li>
+     * </ul>
+     *
+     * <p>Example:
+     * <pre>GET /api/analytics/risk-vs-return</pre>
+     *
+     * <p>Response 200:
+     * <pre>
+     * {
+     *   "success": true,
+     *   "message": "Risk vs Return comparison",
+     *   "data": [
+     *     { "riskLevel": "LOW", "fundCount": 5, "averageReturns": 7.20, ... },
+     *     ...
+     *   ]
+     * }
+     * </pre>
+     */
+    @GetMapping("/risk-vs-return")
+    @PreAuthorize("hasAnyRole('ADMIN','ANALYST','ADVISOR','INVESTOR')")
+    public ResponseEntity<ApiResponse<List<RiskReturnDTO>>> getRiskVsReturn() {
+        List<RiskReturnDTO> matrix = analyticsService.getRiskVsReturn();
+        return ResponseEntity.ok(
+                ApiResponse.ok("Risk vs Return comparison", matrix));
+    }
+
+    // ================================================================
+    //  3. MONTHLY INVESTMENT REPORT
+    // ================================================================
+
+    /**
+     * Returns a month-by-month investment report for the given calendar year.
+     *
+     * <p>Query params:
+     * <ul>
+     *   <li>{@code year}   — calendar year (default: current year)</li>
+     *   <li>{@code userId} — optional; if omitted, returns platform-wide report
+     *                        (requires ADMIN / ANALYST / ADVISOR role)</li>
+     * </ul>
+     *
+     * <p>Examples:
+     * <pre>
+     * GET /api/analytics/monthly-report                      -- platform, current year
+     * GET /api/analytics/monthly-report?year=2025            -- platform, 2025
+     * GET /api/analytics/monthly-report?userId=3             -- user-3, current year
+     * GET /api/analytics/monthly-report?year=2025&amp;userId=3  -- user-3, 2025
+     * </pre>
+     *
+     * <p>Response 200:
+     * <pre>
+     * {
+     *   "success": true,
+     *   "message": "Monthly investment report",
+     *   "data": {
+     *     "year": 2026,
+     *     "reportScope": "PLATFORM",
+     *     "months": [
+     *       { "month": 1, "monthName": "January", "totalInvested": 500000.00,
+     *         "transactionCount": 12, "averageAmount": 41666.67,
+     *         "cumulativeTotal": 500000.00,
+     *         "categoryBreakdown": [
+     *           { "category": "EQUITY", "amount": 350000.00, "transactions": 8 },
+     *           ...
+     *         ]
+     *       },
+     *       ...
+     *     ],
+     *     "totalInvestedInPeriod": 2300000.00,
+     *     "totalTransactionsInPeriod": 56,
+     *     "activeFundsInPeriod": 4
+     *   }
+     * }
+     * </pre>
+     */
+    @GetMapping("/monthly-report")
+    @PreAuthorize("hasAnyRole('ADMIN','ANALYST','ADVISOR','INVESTOR')")
+    public ResponseEntity<ApiResponse<MonthlyReportDTO>> getMonthlyReport(
+            @RequestParam(required = false) Integer year,
+            @RequestParam(required = false) Long    userId) {
+
+        int reportYear = (year != null) ? year : LocalDate.now().getYear();
+
+        // Non-investor roles can view platform-wide; investors only their own
+        MonthlyReportDTO report = analyticsService.getMonthlyReport(reportYear, userId);
+        return ResponseEntity.ok(
+                ApiResponse.ok("Monthly investment report", report));
+    }
+}
